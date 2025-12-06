@@ -12,30 +12,36 @@ from bitcointx.core import (
     CMutableTxIn,
     CMutableTxOut,
     CMutableTransaction,
+    CTxWitness,
+    CTxInWitness,
 )
-from bitcointx.core.script import CScript, SignatureHash, SIGHASH_ALL
+from bitcointx.core.script import (
+    CScript,
+    CScriptWitness,
+    SignatureHash,
+    SIGHASH_ALL,
+    SIGVERSION_WITNESS_V0,
+)
 from bitcointx.core.scripteval import VerifyScript
-from bitcointx.wallet import CCoinKey, P2PKHCoinAddress, CCoinAddress
+from bitcointx.wallet import CCoinKey, P2PKHCoinAddress, P2WPKHCoinAddress, CCoinAddress
 
 
-# Ensure we use the locally built secp256k1 v0.4.0
 set_custom_secp256k1_path(
     "/Users/masashi_mac_ssd/Developer/secp256k1/.libs/libsecp256k1.dylib",
 )
 
-# Always use signet for this demo
 select_chain_params("bitcoin/signet")
 
 
 def read_inputs() -> tuple[str, str, int, int, int, str]:
-    print("=== python-bitcointx: simple signet P2PKH tx builder ===\n")
+    print("=== python-bitcointx: simple signet P2WPKH tx builder ===\n")
 
     wif = input("Private key (WIF, signet): ").strip()
     prev_txid_hex = input("Prev txid (hex, big-endian): ").strip()
     vout_str = input("Prev output index (vout): ").strip()
     utxo_value_str = input("Prev output value (sats): ").strip()
     fee_str = input("Fee (sats): ").strip()
-    dest_address = input("Destination P2PKH address (signet): ").strip()
+    dest_address = input("Destination address (signet, P2PKH or P2WPKH): ").strip()
 
     if not (wif and prev_txid_hex and vout_str and utxo_value_str and fee_str and dest_address):
         raise ValueError("All fields are required.")
@@ -66,33 +72,54 @@ def build_and_sign_tx(
 
     key = CCoinKey(wif)
 
-    # Input (outpoint)
-    # User supplies txid as shown in explorers (big-endian hex),
-    # so convert with x() rather than lx().
     prev_txid_bytes = x(prev_txid_hex)
     txin = CMutableTxIn(COutPoint(prev_txid_bytes, vout))
 
-    # scriptPubKey of the UTXO we are spending (P2PKH for our key)
-    txin_script_pubkey = P2PKHCoinAddress.from_pubkey(key.pub).to_scriptPubKey()
+    # For P2WPKH, the UTXO's scriptPubKey is the witness program
+    #   OP_0 <20-byte-hash160(pubkey)>
+    # but the scriptCode used for SignatureHash is the corresponding
+    # P2PKH-style script:
+    #   OP_DUP OP_HASH160 <hash160(pubkey)> OP_EQUALVERIFY OP_CHECKSIG
+    witness_program_spk = P2WPKHCoinAddress.from_pubkey(key.pub).to_scriptPubKey()
+    script_code = P2PKHCoinAddress.from_pubkey(key.pub).to_scriptPubKey()
 
-    # Output to destination address (use CCoinAddress so that chain params
-    # such as bitcoin/signet are respected)
+    # Debug: show script/code and pubkey details to help diagnose
+    print("\n[Debug] P2WPKH input details:")
+    print(f"  pubkey         : {key.pub.hex()}")
+    print(f"  script_code    : {script_code.hex()}  (P2PKH-style)")
+    print(f"  witness prog SPK: {witness_program_spk.hex()}  (OP_0 <20-byte-hash160>)")
+
     txout = CMutableTxOut(
         send_value,
         CCoinAddress(dest_address).to_scriptPubKey(),
     )
 
-    tx = CMutableTxTransaction([txin], [txout])
+    tx = CMutableTransaction([txin], [txout])
 
-    # Signature hash for input 0
-    sighash = SignatureHash(txin_script_pubkey, tx, 0, SIGHASH_ALL)
+    sighash = SignatureHash(
+        script_code,
+        tx,
+        0,
+        SIGHASH_ALL,
+        amount=utxo_value,
+        sigversion=SIGVERSION_WITNESS_V0,
+    )
 
-    # Sign and attach scriptSig
     sig = key.sign(sighash) + bytes([SIGHASH_ALL])
-    txin.scriptSig = CScript([sig, key.pub])
+    txin.scriptSig = CScript([])
+    witness = CScriptWitness([sig, key.pub])
+    tx.wit = CTxWitness([CTxInWitness(witness)])
 
-    # Verify locally
-    VerifyScript(txin.scriptSig, txin_script_pubkey, tx, 0)
+    # Verify against the actual witness program scriptPubKey, explicitly
+    # passing amount and witness data.
+    VerifyScript(
+        txin.scriptSig,
+        witness_program_spk,
+        tx,
+        0,
+        amount=utxo_value,
+        witness=witness,
+    )
 
     return tx
 
