@@ -90,10 +90,10 @@ def build_and_sign_tx(
 
     # Sign and attach scriptSig
     sig = key.sign(sighash) + bytes([SIGHASH_ALL])
-    txin.scriptSig = CScript([sig, key.pub])
+    tx.vin[0].scriptSig = CScript([sig, key.pub])
 
-    # Verify locally
-    VerifyScript(txin.scriptSig, txin_script_pubkey, tx, 0)
+    # Verify locally against the tx's actual input
+    VerifyScript(tx.vin[0].scriptSig, txin_script_pubkey, tx, 0)
 
     return tx
 
