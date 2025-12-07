@@ -8,6 +8,7 @@ from bitcointx.core import (
     b2x,
     b2lx,
     x,
+    lx,
     COutPoint,
     CMutableTxIn,
     CMutableTxOut,
@@ -72,7 +73,7 @@ def build_and_sign_tx(
 
     key = CCoinKey(wif)
 
-    prev_txid_bytes = x(prev_txid_hex)
+    prev_txid_bytes = lx(prev_txid_hex)
     txin = CMutableTxIn(COutPoint(prev_txid_bytes, vout))
 
     # For P2WPKH, the UTXO's scriptPubKey is the witness program

@@ -8,6 +8,7 @@ from bitcointx.core import (
     b2x,
     b2lx,
     x,
+    lx,
     COutPoint,
     CMutableTxIn,
     CMutableTxOut,
@@ -69,7 +70,7 @@ def build_and_sign_tx(
     # Input (outpoint)
     # User supplies txid as shown in explorers (big-endian hex),
     # so convert with x() rather than lx().
-    prev_txid_bytes = x(prev_txid_hex)
+    prev_txid_bytes = lx(prev_txid_hex)
     txin = CMutableTxIn(COutPoint(prev_txid_bytes, vout))
 
     # scriptPubKey of the UTXO we are spending (P2PKH for our key)
@@ -82,7 +83,7 @@ def build_and_sign_tx(
         CCoinAddress(dest_address).to_scriptPubKey(),
     )
 
-    tx = CMutableTxTransaction([txin], [txout])
+    tx = CMutableTransaction([txin], [txout])
 
     # Signature hash for input 0
     sighash = SignatureHash(txin_script_pubkey, tx, 0, SIGHASH_ALL)
