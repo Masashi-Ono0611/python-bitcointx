@@ -1,6 +1,14 @@
 # PSBT SIGHASH Demo Notes
 
-This file summarizes the small demo scripts used to explore PSBT and SIGHASH behavior with `python-bitcointx` on Signet. The focus is on P2WPKH inputs and different SIGHASH modes.
+**Quick map of main teaching scripts**
+- `p2wpkh_sighash_all_1in2out.py` … Baseline SIGHASH_ALL behavior for 1-in-2-out P2WPKH.
+- `p2wpkh_sighash_single_anyonecanpay_1in2out.py` … SIGHASH_SINGLE|ANYONECANPAY behavior for 1-in-2-out P2WPKH, showing mutable vs committed outputs.
+- `mutate_output1_address_1in2out.py` … Post-signing mutation of output #1 (address) to demonstrate what SIGHASH_SINGLE|ANYONECANPAY allows.
+- `p2wpkh_simple_signet_transaction.py` … Raw P2WPKH single-sig example (no PSBT), for direct BIP143-style signing.
+- `p2wsh_2of3_create_address.py` … 2-of-3 P2WSH Treasury address + witnessScript generator (multi-sig setup).
+- `p2wsh_2of3_spend_multisig.py` … Practical 2-of-3 P2WSH multisig spend using PSBT (A/B/C sequential signing, final broadcastable tx).
+
+This file summarizes the small demo scripts used to explore PSBT and SIGHASH behavior with `python-bitcointx` on Signet. The focus is on P2WPKH inputs, SIGHASH modes, and a practical 2-of-3 P2WSH multisig workflow.
 
 ---
 
@@ -29,37 +37,7 @@ This file summarizes the small demo scripts used to explore PSBT and SIGHASH beh
 
 ---
 
-## 2. p2wpkh_sighash_all_1in1out.py
-
-**Purpose**
-- Minimal PSBT demo for a **1-input / 1-output** P2WPKH transaction using `SIGHASH_ALL`.
-- Show a fully standard, simple payment that can be broadcast on Signet.
-
-**Structure**
-- Single P2WPKH input, spending one UTXO.
-- Single P2WPKH output to a destination address.
-- Uses PSBT to:
-  - define the unsigned transaction,
-  - attach UTXO information (`CTxOut` in the PSBT input), and
-  - sign with `SIGHASH_ALL`.
-
-**What it demonstrates**
-- `SIGHASH_ALL` commits to:
-  - all inputs, and
-  - all outputs.
-- After signing, **any modification** to:
-  - amounts of outputs,
-  - destination addresses,
-  - number/order of outputs,
-  - or inputs
-  will invalidate the signature.
-
-**Behavior**
-- If you try to edit the raw hex of this transaction after signing (e.g. change the output address or amount) and broadcast it, the node rejects the transaction with a script verification error (signature becomes invalid).
-
----
-
-## 3. p2wpkh_sighash_all_1in2out.py
+## 2. p2wpkh_sighash_all_1in2out.py
 
 **Purpose**
 - Extend the `SIGHASH_ALL` demo to a **1-input / 2-output** P2WPKH transaction.
@@ -83,28 +61,7 @@ This file summarizes the small demo scripts used to explore PSBT and SIGHASH beh
   - `mandatory-script-verify-flag-failed (Script evaluated without error but finished with a false/empty top stack element)`
 - This confirms that `SIGHASH_ALL` protects **all outputs**, not just the one that "belongs" to the signer.
 
----
-
-## 4. p2wpkh_sighash_single_anyonecanpay_1in1out.py
-
-**Purpose**
-- Demonstrate `SIGHASH_SINGLE|SIGHASH_ANYONECANPAY` in the **simplest 1-input / 1-output** scenario.
-- Provide a baseline to compare with the more interesting 1-in-2-out case.
-
-**Structure**
-- One P2WPKH input.
-- One P2WPKH output.
-- PSBT is constructed with UTXO information and signed using `SIGHASH_SINGLE|SIGHASH_ANYONECANPAY`.
-
-**What it demonstrates**
-- With only one input and one output:
-  - `SIGHASH_SINGLE` and `SIGHASH_ALL` **behave similarly** in practice, because there is a one-to-one mapping between input #0 and output #0.
-  - `SIGHASH_ANYONECANPAY` still means that the signature does not commit to any other inputs (but since there is only one, the effect is not visible).
-- This script mainly serves as a conceptual stepping stone, before adding a second output.
-
----
-
-## 5. p2wpkh_sighash_single_anyonecanpay_1in2out.py
+## 3. p2wpkh_sighash_single_anyonecanpay_1in2out.py
 
 **Purpose**
 - Core educational demo for `SIGHASH_SINGLE|SIGHASH_ANYONECANPAY` with **1 input and 2 outputs**.
@@ -178,7 +135,7 @@ This file summarizes the small demo scripts used to explore PSBT and SIGHASH beh
 
 ---
 
-## 8. PSBT vs SIGHASH: orthogonal concepts
+## 6. PSBT vs SIGHASH: orthogonal concepts
 
 - **PSBT (Partially Signed Bitcoin Transaction)** is a **format / container** defined by BIP174 (and extended by BIP370), used to carry:
   - the unsigned transaction (`unsigned_tx`),
@@ -192,14 +149,11 @@ This file summarizes the small demo scripts used to explore PSBT and SIGHASH beh
 
 ---
 
-## 9. Single-sig P2WPKH: raw tx vs PSBT
+## 7. Single-sig P2WPKH: raw tx example
 
-This section contrasts two ways to build and sign a simple 1-input / 1-output P2WPKH transaction on Signet:
+This section briefly recalls the direct raw P2WPKH example used for comparison.
 
-- **`p2wpkh_simple_signet_transaction.py`** (raw tx, direct signing)
-- **`p2wpkh_sighash_all_1in1out.py`** (PSBT-based signing)
-
-### 9.1 Raw P2WPKH transaction (`p2wpkh_simple_signet_transaction.py`)
+### 7.1 Raw P2WPKH transaction (`p2wpkh_simple_signet_transaction.py`)
 
 **Characteristics**
 - Builds an unsigned `CMutableTransaction` directly.
@@ -218,39 +172,13 @@ This section contrasts two ways to build and sign a simple 1-input / 1-output P2
 - A classic, direct way to build and sign a SegWit P2WPKH transaction.
 - All information (UTXO amount, script, etc.) is handled inside the script logic; there is no portable "draft" format.
 
-### 9.2 PSBT P2WPKH transaction (`p2wpkh_psbt_sighash_all_1in1out.py`)
-
-**Characteristics**
-- Also builds an unsigned `CMutableTransaction` for 1-in / 1-out.
-- Creates a `PSBT_Input` that stores:
-  - `unsigned_tx` (the same tx),
-  - `utxo` as a `CTxOut` (amount + P2WPKH scriptPubKey),
-  - `index` (input index 0),
-  - `sighash_type = SIGHASH_ALL`.
-- Wraps everything in a `PartiallySignedTransaction`.
-- Uses the stored UTXO/script information to compute the `SignatureHash` and create a signature.
-- Fills `final_script_witness` with `[sig, pubkey]` and then calls `psbt.extract_transaction()` to get the final raw tx.
-
-**What it shows**
-- The **same P2WPKH payment** can be expressed either as a bare raw tx or as a PSBT.
-- PSBT keeps the unsigned tx and all signing-related data (UTXO, scripts, sighash type) in a well-defined container.
-- Even for a single signer, PSBT can be used as a standard way to represent "draft" or partially signed transactions.
-
-**Key contrast (raw vs PSBT)**
-- Raw version:
-  - Works directly with the final transaction object and witness.
-  - Does not provide a standard way to share an unsigned or partially signed state.
-- PSBT version:
-  - Introduces a structured container (`PartiallySignedTransaction`).
-  - Can carry partial signatures, UTXO metadata, and eventually be finalized into a raw tx.
-
 ---
 
-## 10. P2WSH 2-of-3 multisig address and PSBT spend
+## 7. P2WSH 2-of-3 multisig address and PSBT spend
 
 This section summarizes the 2-of-3 P2WSH multisig Treasury example on Signet.
 
-### 10.1 `p2wsh_2of3_create_address.py`
+### 8.1 `p2wsh_2of3_create_address.py`
 
 **Purpose**
 - Create a Signet 2-of-3 P2WSH multisig Treasury address from three WIF private keys.
@@ -275,7 +203,7 @@ This section summarizes the 2-of-3 P2WSH multisig Treasury example on Signet.
 - Fund this P2WSH address on Signet (e.g. 10,000 sats) to create a UTXO.
 - Keep the `witnessScript` hex and the three WIFs for future spending.
 
-### 10.2 `p2wsh_2of3_spend_psbt_multisig_demo.py`
+### 10.2 `p2wsh_2of3_spend_multisig.py`
 
 **Purpose**
 - Demonstrate a full 2-of-3 P2WSH multisig spend using PSBT on Signet.
