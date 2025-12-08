@@ -267,3 +267,54 @@ This section summarizes the 2-of-3 P2WSH multisig Treasury example on Signet.
   - and partial signatures,
   independent of the chosen SIGHASH mode (`SIGHASH_ALL` in this demo).
 
+
+---
+
+## 8. Simple Taproot (P2TR) key-path spend
+
+### 8.1 `p2tr_simple_signet_transaction.py`
+
+**Purpose**
+- Provide a minimal example of spending a Taproot (P2TR) UTXO on Signet using **key-path** (no script path) and Schnorr signatures.
+- Serve as a direct counterpart to `p2wpkh_simple_signet_transaction.py`, but using P2TR instead of P2WPKH.
+
+**What the script does**
+- Reads from CLI:
+  - WIF (Signet, compressed; used as the Taproot internal key),
+  - UTXO info: `prev_txid` (big-endian hex), `vout`, `value` (sats),
+  - `fee` (sats),
+  - destination address (can be P2PKH / P2WPKH / P2TR).
+- Derives a P2TR Signet address from the internal pubkey:
+  - `P2TRBitcoinSignetAddress.from_pubkey(key.pub)` → `tb1p...` address.
+- Assumes that the provided UTXO is an output to this P2TR address (its scriptPubKey must be `OP_1 <32-byte x-only key>`).
+- Builds a 1-in / 1-out transaction:
+  - Input: the P2TR UTXO.
+  - Output: the specified destination address with `value - fee` sats.
+- Computes the Taproot key-path signature hash:
+  - Uses `SignatureHashSchnorr(tx, 0, spent_outputs)` where `spent_outputs` contains the P2TR scriptPubKey and amount.
+- Produces a Schnorr signature with Taproot tweak:
+  - `sig = key.sign_schnorr_tweaked(sighash)`.
+- Sets the Taproot witness for key-path spend:
+  - witness stack: `[sig]` (just the Schnorr signature).
+- Leaves `scriptSig` empty (as required for P2TR).
+- Calls `VerifyScript` with an empty flag set against the P2TR scriptPubKey for local validation.
+- Prints the final TxID and raw hex for broadcasting to Signet.
+
+**Contrast with `p2wpkh_simple_signet_transaction.py`**
+- P2WPKH simple tx:
+  - Address: `tb1q...` (v0 P2WPKH).
+  - scriptPubKey: `OP_0 <20-byte-hash160(pubkey)>`.
+  - Signature hashing: BIP143-style `SignatureHash(..., SIGVERSION_WITNESS_V0)`.
+  - Witness: `[sig (ECDSA with hashtype), pubkey]`.
+- P2TR simple tx:
+  - Address: `tb1p...` (v1 P2TR).
+  - scriptPubKey: `OP_1 <32-byte x-only output key>`.
+  - Signature hashing: BIP341 `SignatureHashSchnorr(tx, idx, spent_outputs)`.
+  - Witness (key-path): `[schnorr_sig]` (no pubkey in witness; the output key is in the scriptPubKey).
+
+**What this teaches conceptually**
+- How Taproot (P2TR) changes:
+  - the scriptPubKey form (v0 keyhash vs v1 output key),
+  - the signature hash algorithm (BIP143 vs BIP341),
+  - the witness layout (pubkey included vs pubkey implied in scriptPubKey).
+- That, from a high-level perspective, a P2TR key-path spend can feel as simple as a P2WPKH spend, but uses Schnorr and a different commitment structure under the hood.
