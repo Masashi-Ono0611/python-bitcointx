@@ -318,3 +318,25 @@ This section summarizes the 2-of-3 P2WSH multisig Treasury example on Signet.
   - the signature hash algorithm (BIP143 vs BIP341),
   - the witness layout (pubkey included vs pubkey implied in scriptPubKey).
 - That, from a high-level perspective, a P2TR key-path spend can feel as simple as a P2WPKH spend, but uses Schnorr and a different commitment structure under the hood.
+
+### 8.2 Removed P2TR 2-of-3 CHECKSIGADD script-path demos
+
+- **Exploratory scripts (now removed)**
+  - `p2tr_2of3_create_address.py`
+  - `p2tr_2of3_spend_multisig.py`
+- **What they tried to do**
+  - Implement a 2-of-3 Taproot script-path multisig using a CHECKSIGADD-style tapscript:
+    - `<xonlyA> OP_CHECKSIG <xonlyB> OP_CHECKSIGADD <xonlyC> OP_CHECKSIGADD 2 OP_NUMEQUAL`.
+  - Build a P2TR script tree + control block and spend the UTXO on Signet with two Schnorr signatures in the witness.
+- **Why they were removed**
+  - Locally, `VerifyScript` (with empty flags) accepted the tapscript spend, but Signet rejected the real transaction with:
+    - `mandatory-script-verify-flag-failed (Invalid Schnorr signature)`.
+  - The failure is likely due to subtle differences between python-bitcointx's experimental Tapscript `SignatureHashSchnorr` / schnorr-signing implementation and Bitcoin Core's BIP340/341/342 consensus rules for script-path spends.
+  - Fixing this would require patching or extending python-bitcointx itself (library-internals level work), which is beyond the scope of these educational demos.
+- **Takeaway**
+  - The **completed, Signet-proven demos** in this repo are:
+    - P2WSH 2-of-3 multisig (script-path via CHECKMULTISIG).
+    - P2TR key-path single-sig.
+  - The removed P2TR 2-of-3 CHECKSIGADD scripts are kept here only as design notes, not as working code.
+
+---
