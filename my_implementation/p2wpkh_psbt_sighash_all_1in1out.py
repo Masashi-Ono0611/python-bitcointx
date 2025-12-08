@@ -19,8 +19,6 @@ from bitcointx.core.key import KeyStore
 from bitcointx.core.script import (
     CScript,
     SIGHASH_ALL,
-    SIGHASH_SINGLE,
-    SIGHASH_ANYONECANPAY,
     SIGVERSION_WITNESS_V0,
     SignatureHash,
 )
@@ -46,7 +44,7 @@ class SingleKeyStore(KeyStore):
 
 
 def read_inputs() -> tuple[str, str, int, int, int, str]:
-    print("=== python-bitcointx: P2WPKH PSBT SIGHASH_SINGLE|ANYONECANPAY demo ===\n")
+    print("=== python-bitcointx: P2WPKH PSBT SIGHASH_ALL 1-in-1-out demo ===\n")
 
     wif = input("Private key (WIF, signet): ").strip()
     prev_txid_hex = input("Prev txid (hex, big-endian): ").strip()
@@ -72,7 +70,7 @@ def read_inputs() -> tuple[str, str, int, int, int, str]:
     return wif, prev_txid_hex, vout, utxo_value, fee, dest_address
 
 
-def build_psbt_p2wpkh_sighash_single_anyonecanpay(
+def build_psbt_p2wpkh_sighash_all_1in1out(
     wif: str,
     prev_txid_hex: str,
     vout: int,
@@ -97,15 +95,13 @@ def build_psbt_p2wpkh_sighash_single_anyonecanpay(
 
     unsigned_tx = CMutableTransaction([txin], [txout])
 
-    hash_type = SIGHASH_SINGLE | SIGHASH_ANYONECANPAY
-
     witness_utxo = CTxOut(utxo_value, witness_program_spk)
 
     psbt_in = PSBT_Input(
         unsigned_tx=unsigned_tx,
         utxo=witness_utxo,
         index=0,
-        sighash_type=int(hash_type),
+        sighash_type=int(SIGHASH_ALL),
     )
 
     psbt_out = PSBT_Output(index=0)
@@ -118,7 +114,7 @@ def build_psbt_p2wpkh_sighash_single_anyonecanpay(
 
     keystore = SingleKeyStore(key)
 
-    sighash_all = SignatureHash(
+    sighash = SignatureHash(
         script_code,
         unsigned_tx,
         0,
@@ -126,20 +122,7 @@ def build_psbt_p2wpkh_sighash_single_anyonecanpay(
         amount=utxo_value,
         sigversion=SIGVERSION_WITNESS_V0,
     )
-    sighash_single_acp = SignatureHash(
-        script_code,
-        unsigned_tx,
-        0,
-        hash_type,
-        amount=utxo_value,
-        sigversion=SIGVERSION_WITNESS_V0,
-    )
-
-    print("\n[Debug] SIGHASH comparison:")
-    print(f"  SIGHASH_ALL                 : {b2x(sighash_all)}")
-    print(f"  SIGHASH_SINGLE|ANYONECANPAY : {b2x(sighash_single_acp)}")
-
-    sig = key.sign(sighash_single_acp) + bytes([int(hash_type)])
+    sig = key.sign(sighash) + bytes([int(SIGHASH_ALL)])
 
     psbt.inputs[0].final_script_sig = CScript([])
     from bitcointx.core.script import CScriptWitness  # local import to avoid top reordering
@@ -152,7 +135,7 @@ def build_psbt_p2wpkh_sighash_single_anyonecanpay(
 def main() -> None:
     try:
         wif, prev_txid_hex, vout, utxo_value, fee, dest_address = read_inputs()
-        psbt = build_psbt_p2wpkh_sighash_single_anyonecanpay(
+        psbt = build_psbt_p2wpkh_sighash_all_1in1out(
             wif,
             prev_txid_hex,
             vout,
@@ -168,7 +151,7 @@ def main() -> None:
     raw_hex = b2x(final_tx.serialize())
     txid = b2lx(final_tx.GetTxid())
 
-    print("\n=== Signed transaction (PSBT, SIGHASH_SINGLE|ANYONECANPAY) ===")
+    print("\n=== Signed transaction (PSBT, SIGHASH_ALL, 1-in-1-out) ===")
     print(f"TxID      : {txid}")
     print(f"Raw (hex) : {raw_hex}")
 

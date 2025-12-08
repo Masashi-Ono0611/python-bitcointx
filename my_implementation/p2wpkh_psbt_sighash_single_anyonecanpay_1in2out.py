@@ -19,6 +19,8 @@ from bitcointx.core.key import KeyStore
 from bitcointx.core.script import (
     CScript,
     SIGHASH_ALL,
+    SIGHASH_SINGLE,
+    SIGHASH_ANYONECANPAY,
     SIGVERSION_WITNESS_V0,
     SignatureHash,
 )
@@ -43,22 +45,34 @@ class SingleKeyStore(KeyStore):
         return None
 
 
-def read_inputs() -> tuple[str, str, int, int, int, str]:
-    print("=== python-bitcointx: P2WPKH PSBT SIGHASH_ALL demo ===\n")
+def read_inputs() -> tuple[str, str, int, int, int, str, str]:
+    print("=== python-bitcointx: P2WPKH PSBT SIGHASH_SINGLE|ANYONECANPAY 1-in-2-out demo ===\n")
 
     wif = input("Private key (WIF, signet): ").strip()
     prev_txid_hex = input("Prev txid (hex, big-endian): ").strip()
     vout_str = input("Prev output index (vout): ").strip()
     utxo_value_str = input("Prev output value (sats): ").strip()
     fee_str = input("Fee (sats): ").strip()
-    dest_address = input("Destination address (signet, P2WPKH recommended): ").strip()
+    commit_value_str = input("Committed output value (sats, output #0): ").strip()
+    dest_address_committed = input("Committed destination address (output #0): ").strip()
+    dest_address_free = input("Free destination address (output #1): ").strip()
 
-    if not (wif and prev_txid_hex and vout_str and utxo_value_str and fee_str and dest_address):
+    if not (
+        wif
+        and prev_txid_hex
+        and vout_str
+        and utxo_value_str
+        and fee_str
+        and commit_value_str
+        and dest_address_committed
+        and dest_address_free
+    ):
         raise ValueError("All fields are required.")
 
     vout = int(vout_str)
     utxo_value = int(utxo_value_str)
     fee = int(fee_str)
+    commit_value = int(commit_value_str)
 
     if utxo_value <= 0:
         raise ValueError("UTXO value must be positive")
@@ -67,18 +81,34 @@ def read_inputs() -> tuple[str, str, int, int, int, str]:
     if utxo_value <= fee:
         raise ValueError("UTXO value must be greater than fee")
 
-    return wif, prev_txid_hex, vout, utxo_value, fee, dest_address
+    total_sendable = utxo_value - fee
+    if commit_value <= 0 or commit_value >= total_sendable:
+        raise ValueError("Committed value must be > 0 and < (utxo_value - fee)")
+
+    return (
+        wif,
+        prev_txid_hex,
+        vout,
+        utxo_value,
+        fee,
+        commit_value,
+        dest_address_committed,
+        dest_address_free,
+    )
 
 
-def build_psbt_p2wpkh_sighash_all(
+def build_psbt_p2wpkh_sighash_single_anyonecanpay_1in2out(
     wif: str,
     prev_txid_hex: str,
     vout: int,
     utxo_value: int,
     fee: int,
-    dest_address: str,
+    commit_value: int,
+    dest_address_committed: str,
+    dest_address_free: str,
 ) -> PartiallySignedTransaction:
-    send_value = utxo_value - fee
+    total_sendable = utxo_value - fee
+    free_value = total_sendable - commit_value
 
     key = CCoinKey(wif)
 
@@ -88,12 +118,21 @@ def build_psbt_p2wpkh_sighash_all(
     witness_program_spk = P2WPKHCoinAddress.from_pubkey(key.pub).to_scriptPubKey()
     script_code = P2WPKHCoinAddress.from_pubkey(key.pub).to_redeemScript()
 
-    txout = CMutableTxOut(
-        send_value,
-        CCoinAddress(dest_address).to_scriptPubKey(),
+    # output #0: committed (署名がコミットする側)
+    txout_committed = CMutableTxOut(
+        commit_value,
+        CCoinAddress(dest_address_committed).to_scriptPubKey(),
     )
 
-    unsigned_tx = CMutableTransaction([txin], [txout])
+    # output #1: free (署名にとっては "どうでもよい" 側)
+    txout_free = CMutableTxOut(
+        free_value,
+        CCoinAddress(dest_address_free).to_scriptPubKey(),
+    )
+
+    unsigned_tx = CMutableTransaction([txin], [txout_committed, txout_free])
+
+    hash_type = SIGHASH_SINGLE | SIGHASH_ANYONECANPAY
 
     witness_utxo = CTxOut(utxo_value, witness_program_spk)
 
@@ -101,20 +140,21 @@ def build_psbt_p2wpkh_sighash_all(
         unsigned_tx=unsigned_tx,
         utxo=witness_utxo,
         index=0,
-        sighash_type=int(SIGHASH_ALL),
+        sighash_type=int(hash_type),
     )
 
-    psbt_out = PSBT_Output(index=0)
+    psbt_out0 = PSBT_Output(index=0)
+    psbt_out1 = PSBT_Output(index=1)
 
     psbt = PartiallySignedTransaction(
         unsigned_tx=unsigned_tx,
         inputs=[psbt_in],
-        outputs=[psbt_out],
+        outputs=[psbt_out0, psbt_out1],
     )
 
     keystore = SingleKeyStore(key)
 
-    sighash = SignatureHash(
+    sighash_all = SignatureHash(
         script_code,
         unsigned_tx,
         0,
@@ -122,7 +162,21 @@ def build_psbt_p2wpkh_sighash_all(
         amount=utxo_value,
         sigversion=SIGVERSION_WITNESS_V0,
     )
-    sig = key.sign(sighash) + bytes([int(SIGHASH_ALL)])
+    sighash_single_acp = SignatureHash(
+        script_code,
+        unsigned_tx,
+        0,
+        hash_type,
+        amount=utxo_value,
+        sigversion=SIGVERSION_WITNESS_V0,
+    )
+
+    print("\n[Debug] SIGHASH (1-in-2-out, input index 0):")
+    print(f"  SIGHASH_ALL                 : {b2x(sighash_all)}")
+    print(f"  SIGHASH_SINGLE|ANYONECANPAY : {b2x(sighash_single_acp)}")
+    print("  (Note: SINGLE|ACP only commits to output #0; output #1 can be changed without breaking this signature.)")
+
+    sig = key.sign(sighash_single_acp) + bytes([int(hash_type)])
 
     psbt.inputs[0].final_script_sig = CScript([])
     from bitcointx.core.script import CScriptWitness  # local import to avoid top reordering
@@ -134,14 +188,25 @@ def build_psbt_p2wpkh_sighash_all(
 
 def main() -> None:
     try:
-        wif, prev_txid_hex, vout, utxo_value, fee, dest_address = read_inputs()
-        psbt = build_psbt_p2wpkh_sighash_all(
+        (
             wif,
             prev_txid_hex,
             vout,
             utxo_value,
             fee,
-            dest_address,
+            commit_value,
+            dest_address_committed,
+            dest_address_free,
+        ) = read_inputs()
+        psbt = build_psbt_p2wpkh_sighash_single_anyonecanpay_1in2out(
+            wif,
+            prev_txid_hex,
+            vout,
+            utxo_value,
+            fee,
+            commit_value,
+            dest_address_committed,
+            dest_address_free,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Error: {exc.__class__.__name__}: {exc}")
@@ -151,7 +216,7 @@ def main() -> None:
     raw_hex = b2x(final_tx.serialize())
     txid = b2lx(final_tx.GetTxid())
 
-    print("\n=== Signed transaction (PSBT, SIGHASH_ALL) ===")
+    print("\n=== Signed transaction (PSBT, SIGHASH_SINGLE|ANYONECANPAY, 1-in-2-out) ===")
     print(f"TxID      : {txid}")
     print(f"Raw (hex) : {raw_hex}")
 
